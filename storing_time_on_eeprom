@@ -1,0 +1,457 @@
+//-----------------------------Including required Libraries---------------------------------------------------- //
+#define EEPROM_SIZE 512
+#include "EEPROM.h"
+int addr = 0;
+#include <time.h> // Library to read time from server
+#include <WiFi.h>
+#include<ESP32Ticker.h>
+Ticker secondTick;
+#include <PubSubClient.h>
+
+long clock_reading_interval=50000;
+
+//--------------------------------------------Real time clock (from server)-----------------------------------//
+
+String Clock="";
+String h="";
+String m="";
+int hour_length;
+int minute_length;
+int timezone = 6; //Timezone for Dhaka UTC+6
+
+
+//----------------User given time spliting variables------------------------------------//
+
+char Data[30];
+const int numberOfPieces = 5;
+String t[numberOfPieces];
+String input;
+// Keep track of current position in time array
+int counter = 0;
+
+// Keep track of the last comma so we know where to start the substring
+int lastIndex = 0;
+
+char Time0[6];
+char Time1[6];
+char Time2[6];
+char Time3[6];
+char Time4[6];
+
+//--------------------------------WiFi and MQTT credentials-----------------------------------------------//
+
+//mushroom center wifi credentials:
+//ssid: Mashroom Centar
+//pass: mdiculturehouse
+
+const char* ssid = "DataSoft_WiFi";
+const char* password = "support123";
+const char* mqtt_server = "182.163.112.207";
+//const char* mqtt_server = "iot.eclipse.org";
+const int mqttPort = 1883;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+
+
+//------------------------WATCH DOG SUBROUTINE-------------------------------//
+
+//int watchdogCount=0;
+volatile int watchdogCount=0;
+void ISRwatchdog(){
+
+
+  watchdogCount++;
+  if(watchdogCount==100){
+
+
+    //Serial.println();
+    Serial.print("The watch dog bites......");
+    ESP.restart();
+  }
+}
+
+void setup()
+{ 
+
+  Serial.begin(115200);
+  Serial.println("\nInitializing EEPROM library\n");
+  if (!EEPROM.begin(EEPROM_SIZE)) 
+  {
+    Serial.println("Failed to initialise EEPROM");
+    Serial.println("Restarting...");
+    delay(1000);
+    ESP.restart();
+  }
+  secondTick.attach(1,ISRwatchdog);
+  setup_wifi();
+  client.setServer(mqtt_server,mqttPort);
+  client.setCallback(callback);
+  configTime(timezone * 3600, 0, "bd.pool.ntp.org", "bsti1.time.gov.bd");
+  
+}
+
+//----------------------------------------Main Loop------------------------------------//
+
+void loop(){
+
+  //Serial.print("Watch dog counter:");
+   watchdogCount=0;
+  //Serial.println(watchdogCount);
+  
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+  
+  }
+  
+  
+  
+//--------------------------Actual time---------------------------------------------------------//
+
+void actual_time(){
+
+  time_t now;
+  struct tm*timeinfo;
+  time(&now);
+  timeinfo = localtime(&now);
+  
+  h= timeinfo->tm_hour;
+  m= timeinfo->tm_min;
+  
+  hour_length=h.length();
+  minute_length=m.length();
+  if(hour_length==1){
+  h="0"+h;
+  }
+  if(minute_length==1){
+  m="0"+m;
+ }
+  
+  Clock=h+":"+m;
+  Serial.print("Current Time:");
+  Serial.println(Clock);
+ 
+    
+}
+
+//-----------------------------WiFi-------------------------------------------//
+
+void setup_wifi() {
+    
+    delay(100);
+  // We start by connecting to a WiFi network
+    Serial.print("Connecting to ");
+    Serial.println(ssid);
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) 
+    {
+      delay(500);
+      Serial.print(".");
+    }
+    randomSeed(micros());
+    Serial.println("");
+    Serial.println("WiFi connected");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+}
+
+//---------------------------While client not conncected---------------------------------//
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) 
+  {
+    Serial.print("Attempting MQTT connection...");
+    // Create a random client ID
+    String clientId = "ESP32-";
+    clientId += String(random(0xffff), HEX);
+    // Attempt to connect
+    //if your MQTT broker has clientID,username and password
+    //please change following line to    if (client.connect(clientId,userName,passWord))
+    if (client.connect(clientId.c_str()))
+    {
+      Serial.println("connected");
+      
+      
+     //----------------------Subscribing to required topics-----------------------//
+
+     
+      
+      client.subscribe("mushroom/time1");
+      Serial.println("Subsribed to topic: mushroom/time1");
+      
+      
+      } else {
+      
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 6 seconds before retrying
+      delay(5000);
+    }
+  }
+} //end reconnect()
+
+
+//-----------------------Callback function-------------------------------------//
+
+
+void callback(char* topic, byte* payload, unsigned int length) {
+ 
+  Serial.print("Message arrived in topic: ");
+  Serial.println(topic);
+  
+
+
+if(strcmp(topic, "mushroom/time1") == 0){
+
+  
+  Serial.print("Message:");
+  memset(Data, 0, sizeof(Data));//Resetting the array with all zeros
+  Serial.print("Data array size:");
+  Serial.println(sizeof(Data));
+  Serial.print("Data before getting msg:");
+  Serial.println(Data);
+  
+  
+  t[0]="00:00";
+  t[1]="00:00";
+  t[2]="00:00";
+  t[3]="00:00";
+  t[4]="00:00";
+  for (int i = 0; i < length; i++) {
+   //Serial.print((char)payload[i]);
+    //input=input+payload[i];
+    Data[i]=payload[i];
+    }
+      Serial.print("Data:");
+      Serial.println(Data);
+      input=input+Data;
+      Serial.print("input:");
+      Serial.print(input);
+      // Loop through each character and check if it's a comma
+      Serial.println("input length:");
+      Serial.println(input.length());
+       for (int i = 0; i < input.length(); i++){  
+        
+        if (input.substring(i, i+1) == ",") //input.substring: This method extracts the characters in a string 
+                                            //between "start" and "end", not including "end" itself
+        {
+          // Grab the piece from the last index up to the current position and store it
+          t[counter] = input.substring(lastIndex, i);
+          Serial.println(t[counter]);
+          // Update the last position and add 1, so it starts from the next character
+          lastIndex = i + 1;
+          // Increase the position in the array that we store into
+          counter++;
+        }
+
+        // If we're at the end of the string (no more commas to stop us)
+        Serial.print("last string start at: ");
+        Serial.println(i);
+        if (i == input.length()-1) {
+          // Grab the last part of the string from the lastIndex to the end
+          t[counter] = input.substring(lastIndex, i+1);
+          Serial.println(t[counter]);
+        }}
+         
+      // Clear out string and counters to get ready for the next incoming string
+
+      input = "";
+      counter = 0;
+      lastIndex = 0;
+      time_from_user_end();
+    }}
+  
+
+
+//--------------------------Time from user end---------------------//
+
+void time_from_user_end(){
+
+  
+ memset(Time0,0,sizeof(Time0));
+ memset(Time1,0,sizeof(Time1));
+ memset(Time2,0,sizeof(Time2));
+ memset(Time3,0,sizeof(Time3));
+ memset(Time4,0,sizeof(Time4));
+ /*
+ Time0[6]='\0';
+ Time1[6]='\0';
+ Time2[6]='\0';
+ Time3[8]='\0';
+ Time4[8]='\0';
+  */
+  
+  
+  t[0].toCharArray(Time0,6);
+  Serial.print("Time0:");
+  Serial.println(Time0);
+  t[1].toCharArray(Time1,6);
+  Serial.print("Time1:");
+  Serial.println(Time1);
+  //Serial.print("t[2]");
+  //Serial.println(t[2]);
+  t[2].toCharArray(Time2,6);
+  Serial.print("Time2:");
+  Serial.println(Time2);
+  t[3].toCharArray(Time3,6);
+  Serial.print("Time3:");
+  Serial.println(Time3);
+  t[4].toCharArray(Time4,6);
+  Serial.print("Time4:");
+  Serial.println(Time4);
+
+  addr=0;
+  
+  Serial.print ("Elements in Time0");
+  //Serial.println(sizeof(Time0)/sizeof(char));
+  for(int i=0;i<sizeof(Time0)/sizeof(char);++i){
+
+    //addr+=i;
+    EEPROM.write(addr,Time0[i]);
+    Serial.print("Current address:");
+    Serial.println(addr);
+    addr++;
+    }
+    Serial.print("Current address:");
+    Serial.println(addr);
+
+  for(int i=0;i<sizeof(Time1)/sizeof(char);++i){
+
+    //addr+=i;
+    EEPROM.write(addr+i,Time1[i]);
+    Serial.print("Current address:");
+    Serial.println(addr);
+    addr++;
+    }
+
+    Serial.print("Current address:");
+    Serial.println(addr);
+
+  for(int i=0;i<sizeof(Time2)/sizeof(char);++i){
+    
+    EEPROM.write(addr+i,Time2[i]);
+    Serial.print("Current address:");
+    Serial.println(addr);
+    addr++;
+    }
+
+    Serial.print("Current address:");
+    Serial.println(addr);
+
+for(int i=0;i<sizeof(Time3)/sizeof(char);++i){
+
+    
+    EEPROM.write(addr+i,Time3[i]);
+    Serial.print("Current address:");
+    Serial.println(addr);
+    addr++;
+    }
+
+    Serial.print("Current address:");
+    Serial.println(addr);
+
+for(int i=0;i<sizeof(Time4)/sizeof(char);++i){
+
+    
+    EEPROM.write(addr+i,Time4[i]);
+    Serial.print("Current address:");
+    Serial.println(addr);
+    addr++;
+    }
+    
+    Serial.print("Current address:");
+    Serial.println(addr);
+
+
+    EEPROM.commit();
+    readfromEEPROM();
+    
+    }
+
+
+void readfromEEPROM()
+
+{
+
+ Serial.println("---------------------------Reading form EEPROM-----------------------------------");
+ addr=0;
+ memset(Time0,0,sizeof(Time0));
+ memset(Time1,0,sizeof(Time1));
+ memset(Time2,0,sizeof(Time2));
+ memset(Time3,0,sizeof(Time3));
+ memset(Time4,0,sizeof(Time4));
+ 
+  
+ for(int i=0;i<sizeof(Time0)/sizeof(char);++i){
+
+  
+  //addr+=i;
+  Time0[i]=char(EEPROM.read(addr));
+  addr++;  
+    
+  }
+  
+  Serial.print("Time0:");
+  Serial.println(Time0);
+  Serial.print("Current address:");
+  Serial.println(addr);
+
+ for(int i=0;i<sizeof(Time1)/sizeof(char);++i){
+
+  //addr+=i;
+  Time1[i]=char(EEPROM.read(addr));
+  addr++;  
+    
+  }
+ Serial.print("Time1:");
+ Serial.println(Time1);
+ Serial.print("Current address:");
+ Serial.println(addr);
+
+ for(int i=0;i<sizeof(Time2)/sizeof(char);++i){
+
+  //addr+=i;
+  Time2[i]=char(EEPROM.read(addr));
+  addr++;  
+    
+  }
+  Serial.print("Time2:");
+  Serial.println(Time2);
+  Serial.print("Current address:");
+  Serial.println(addr);
+
+ for(int i=0;i<sizeof(Time3)/sizeof(char);++i){
+
+  //addr+=i;
+  Time3[i]=char(EEPROM.read(addr));
+  addr++;  
+    
+  }
+
+  Serial.print("Time3:");
+  Serial.println(Time3);
+  Serial.print("Current address:");
+  Serial.println(addr);
+
+ for(int i=0;i<sizeof(Time4)/sizeof(char);++i){
+
+  //addr+=i;
+  Time4[i]=char(EEPROM.read(addr));
+  addr++;
+    
+    
+  }
+  Serial.print("Time4:");
+  Serial.println(Time4);
+  Serial.print("Current address:");
+  Serial.println(addr);
+
+}
+
+  
+  
