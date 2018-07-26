@@ -1,0 +1,34 @@
+#include<EEPROM.h>
+
+int addr=0;
+
+void setup() {
+  // put your setup code here, to run once:
+
+EEPROM.begin(512);
+
+EEPROM.write(addr,'A');
+addr++;
+EEPROM.write(addr,'B');
+addr++;
+EEPROM.write(addr,'C');
+
+
+String www="ridwanMizan";
+
+for(int i=0;i<www.length();++i){
+
+EEPROM.write(0x0F+i,www[i]);
+  
+}
+
+EEPROM.commit();
+
+
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  delay(10);
+
+}
