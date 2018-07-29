@@ -1,0 +1,45 @@
+#define EEPROM_SIZE 200
+#include "EEPROM.h"
+int addr = 0;
+char Data[30];
+void setup() {
+  // put your setup code here, to run once:
+
+
+Serial.begin(115200);
+Serial.println("\nInitializing EEPROM library\n");
+  if (!EEPROM.begin(EEPROM_SIZE)) 
+  {
+    Serial.println("Failed to initialise EEPROM");
+    Serial.println("Restarting...");
+    delay(1000);
+    ESP.restart();
+  }
+ readfromEEPROM();
+
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+
+}
+
+void readfromEEPROM()
+{
+
+  memset(Data,0,sizeof(Data));
+
+ 
+  
+  for(int i=0;i<30;++i){
+
+
+    Data[i]=char(EEPROM.read(0x00+i));
+    //addr++;  
+    
+  }
+
+  Serial.print("Data:");
+  Serial.println(Data);
+
+}   
